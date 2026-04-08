@@ -281,8 +281,19 @@ function App() {
       if (file.name.toLowerCase().endsWith('.json')) {
         try {
           const text = await file.text();
-          droppedConfigs[file.name] = JSON.parse(text);
-          setStatus(`Parsed JSON config: ${file.name}`);
+          const config = JSON.parse(text);
+          droppedConfigs[file.name] = config;
+          
+          // 単体ドロップ対応：いま選択中のターゲット（Character、Right Hand 等）に即座に設定を適用する
+          if (config.px !== undefined && config.s !== undefined) {
+             setTransforms(p => ({ ...p, [adjustTarget]: config }));
+             // ファイル名も（もしあれば）セットしておく
+             const modelName = file.name.replace('.json', '');
+             setTargetFileNames(p => ({ ...p, [adjustTarget]: modelName }));
+             setStatus(`Imported & Applied config to [${adjustTarget}] from: ${file.name}`);
+          } else {
+             setStatus(`Parsed JSON config helper: ${file.name}`);
+          }
         } catch (err) { }
       }
     }
