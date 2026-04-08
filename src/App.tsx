@@ -53,7 +53,7 @@ const CharacterModel = ({
     }
   }, [isPaused, actionRef]);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (isGenerating) return; 
     if (mixerRef.current) mixerRef.current.update(delta);
     if (baseModel?.type === 'vrm') baseModel.object.update(delta);
