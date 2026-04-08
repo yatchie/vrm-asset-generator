@@ -224,11 +224,31 @@ function App() {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<THREE.AnimationAction | null>(null);
 
+  // Auto-Save to LocalStorage (Multi-Character Support)
   useEffect(() => {
+    const currentChar = targetFileNames.character || 'default';
     Object.keys(transforms).forEach(target => {
       const fName = targetFileNames[target];
-      if (fName) {
-        localStorage.setItem(`vrm-asset-gen-${fName}`, JSON.stringify(transforms[target]));
+      if (fName && target !== 'character') { // 武器・盾のみを対象
+        const key = `vrm-asset-gen-v2-${fName}`;
+        const existingRaw = localStorage.getItem(key);
+        let multiConfig: Record<string, any> = {};
+        
+        try {
+          if (existingRaw) {
+            const parsed = JSON.parse(existingRaw);
+            // 旧形式データの互換性：直接 px 等がある場合はラップする
+            multiConfig = (parsed.px !== undefined) ? { "legacy": parsed } : parsed;
+          }
+        } catch(e) {}
+        
+        multiConfig[currentChar] = transforms[target];
+        multiConfig["_lastChar"] = currentChar;
+        localStorage.setItem(key, JSON.stringify(multiConfig));
+      } else if (fName && target === 'character') {
+         // キャラクター自身のベース位置設定
+         const key = `vrm-asset-gen-char-${fName}`;
+         localStorage.setItem(key, JSON.stringify(transforms[target]));
       }
     });
   }, [transforms, targetFileNames]);
@@ -261,20 +281,76 @@ function App() {
 
   const handleSaveConfig = () => {
     const fName = targetFileNames[adjustTarget] || `${adjustTarget}_config`;
-    const t = transforms[adjustTarget];
-    const blob = new Blob([JSON.stringify(t, null, 2)], { type: 'application/json' });
+    const currentChar = targetFileNames.character || 'default';
+    
+    // 既存のデータを取得（LocalStorageなどからマージ情報を得る）
+    const key = adjustTarget === 'character' ? `vrm-asset-gen-char-${fName}` : `vrm-asset-gen-v2-${fName}`;
+    const existingRaw = localStorage.getItem(key);
+    let multiConfig: Record<string, any> = {};
+    
+    try {
+      if (existingRaw) {
+        const parsed = JSON.parse(existingRaw);
+        multiConfig = (parsed.px !== undefined && adjustTarget !== 'character') ? { "legacy": parsed } : parsed;
+      }
+    } catch(e) {}
+
+    if (adjustTarget === 'character') {
+      multiConfig = transforms[adjustTarget];
+    } else {
+      multiConfig[currentChar] = transforms[adjustTarget];
+      multiConfig["_lastChar"] = currentChar;
+    }
+
+    const blob = new Blob([JSON.stringify(multiConfig, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${fName}.json`;
     a.click();
-    setStatus(`Config saved as ${fName}.json`);
+    setStatus(`Config saved as ${fName}.json (includes ${Object.keys(multiConfig).filter(k=>!k.startsWith('_')).length} characters)`);
   };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files || []);
     if (files.length === 0) return;
+
+    const tryLoadTransform = (fName: string, targetType: string, customConfig?: any) => {
+      const defaultT = { px:0, py:0, pz:0, rx:0, ry:0, rz:0, s:1 };
+      const currentChar = targetFileNames.character || 'default';
+      
+      let data = customConfig;
+      if (!data) {
+        // LocalStorage から検索 (V2キー優先)
+        const key = targetType === 'character' ? `vrm-asset-gen-char-${fName}` : `vrm-asset-gen-v2-${fName}`;
+        const saved = localStorage.getItem(key) || localStorage.getItem(`vrm-asset-gen-${fName}`); // 旧キーも一応探す
+        if (saved) {
+          try { data = JSON.parse(saved); } catch(e) {}
+        }
+      }
+
+      if (!data) return defaultT;
+
+      // キャラクター自身の位置設定（単一形式）の場合
+      if (targetType === 'character' || data.px !== undefined) {
+        return data;
+      }
+
+      // マルチキャラ形式の場合
+      if (data[currentChar]) {
+         return data[currentChar];
+      }
+
+      // 見つからない場合は「他の誰か」の設定をコピーしてプレゼントする
+      const otherChars = Object.keys(data).filter(k => !k.startsWith('_'));
+      if (otherChars.length > 0) {
+         setStatus(`No config for ${currentChar}. Copying from ${otherChars[0]}...`);
+         return data[otherChars[0]];
+      }
+
+      return defaultT;
+    };
 
     const droppedConfigs: Record<string, any> = {};
     for (const file of files) {
@@ -284,15 +360,13 @@ function App() {
           const config = JSON.parse(text);
           droppedConfigs[file.name] = config;
           
-          // 単体ドロップ対応：いま選択中のターゲット（Character、Right Hand 等）に即座に設定を適用する
-          if (config.px !== undefined && config.s !== undefined) {
-             setTransforms(p => ({ ...p, [adjustTarget]: config }));
-             // ファイル名も（もしあれば）セットしておく
+          // 単体ドロップ対応：いま選択中のターゲットに即座に設定を適用する
+          if (adjustTarget !== 'character') {
+             const t = tryLoadTransform(file.name, adjustTarget, config);
+             setTransforms(p => ({ ...p, [adjustTarget]: t }));
              const modelName = file.name.replace('.json', '');
              setTargetFileNames(p => ({ ...p, [adjustTarget]: modelName }));
-             setStatus(`Imported & Applied config to [${adjustTarget}] from: ${file.name}`);
-          } else {
-             setStatus(`Parsed JSON config helper: ${file.name}`);
+             setStatus(`Imported Multi-Config to [${adjustTarget}] from: ${file.name}`);
           }
         } catch (err) { }
       }
@@ -301,16 +375,6 @@ function App() {
     for (const file of files) {
       const ext = file.name.toLowerCase();
       const url = URL.createObjectURL(file);
-
-      const tryLoadTransform = (fName: string) => {
-        const defaultT = { px:0, py:0, pz:0, rx:0, ry:0, rz:0, s:1 };
-        if (droppedConfigs[`${fName}.json`]) return droppedConfigs[`${fName}.json`];
-        const nameWithoutExt = fName.replace(/\.[^/.]+$/, "");
-        if (droppedConfigs[`${nameWithoutExt}.json`]) return droppedConfigs[`${nameWithoutExt}.json`];
-        const saved = localStorage.getItem(`vrm-asset-gen-${fName}`);
-        if (saved) { try { return JSON.parse(saved); } catch(e) {} }
-        return defaultT;
-      };
 
       if (ext.endsWith('.vrm')) {
         setStatus(`Loading VRM: ${file.name}...`);
@@ -334,7 +398,7 @@ function App() {
               setAnimationClip(null);
               
               setTargetFileNames(p => ({ ...p, character: file.name }));
-              setTransforms(p => ({ ...p, character: tryLoadTransform(file.name) }));
+              setTransforms(p => ({ ...p, character: tryLoadTransform(file.name, 'character') }));
               setStatus(`Loaded VRM: ${file.name}`);
             }
           }, undefined, (e) => setStatus(`Error: ${e}`));
@@ -351,7 +415,7 @@ function App() {
               setAnimationClip(null);
               
               setTargetFileNames(p => ({ ...p, character: file.name }));
-              setTransforms(p => ({ ...p, character: tryLoadTransform(file.name) }));
+              setTransforms(p => ({ ...p, character: tryLoadTransform(file.name, 'character') }));
               setStatus(`Loaded FBX Character: ${file.name}`);
             } else {
               if (fbx.animations.length > 0) {
@@ -369,12 +433,12 @@ function App() {
         } catch (err) { setStatus(`Error: ${err}`); }
         
       } else if (ext.endsWith('.glb') || ext.endsWith('.gltf')) {
-        if (!baseModel) { setStatus("Error: Load .vrm or character .fbx first!"); return; }
+        if (!baseModel) { setStatus("Error: Load character first!"); return; }
         setStatus(`Loading equipment: ${file.name}...`);
         try {
           new GLTFLoader().load(url, (gltf) => {
             let targetBone: THREE.Object3D | null | undefined = null;
-            if (adjustTarget === 'character') { setStatus("Error: Select 'Right Hand' or 'Left Hand' target."); return; }
+            if (adjustTarget === 'character') { setStatus("Error: Select Hand."); return; }
 
             if (baseModel.type === 'vrm') {
               targetBone = baseModel.object.humanoid?.getNormalizedBoneNode(adjustTarget as VRMHumanBoneName);
@@ -389,8 +453,8 @@ function App() {
               setEquipments(prev => ({ ...prev, [adjustTarget as VRMHumanBoneName]: gltf.scene }));
               
               setTargetFileNames(p => ({ ...p, [adjustTarget]: file.name }));
-              setTransforms(p => ({ ...p, [adjustTarget]: tryLoadTransform(file.name) }));
-              setStatus(`Equipped and loaded config for ${file.name}`);
+              setTransforms(p => ({ ...p, [adjustTarget]: tryLoadTransform(file.name, adjustTarget, droppedConfigs[`${file.name}.json`] || droppedConfigs[`${file.name.replace(/\.[^/.]+$/, "")}.json`]) }));
+              setStatus(`Equipped Multi-Config for ${file.name}`);
             } else { setStatus(`Error: Bone not found in target rig.`); }
           }, undefined, (e) => setStatus(`Error: ${e}`));
         } catch (err) { setStatus(`Error: ${err}`); }
