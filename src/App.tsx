@@ -123,34 +123,56 @@ const SpriteGenerator = ({
       const originalRotationY = targetScene.rotation.y;
 
       const duration = animationClip ? animationClip.duration : 0;
-      const totalFrames = duration > 0 ? Math.floor(duration * captureFps) : 0; 
+      const totalFrames = duration > 0 ? Math.floor(duration * captureFps) : 0;
+      const stepDelta = duration > 0 ? 1 / captureFps : 0;
 
+      // ── 物理ウォームアップパス ──
+      // 揺れものの物理シミュレーションが「0秒から連続的に積み上げ」られるよう、
+      // 撮影前にアニメーション1周分をサイレントで流しておく。
+      if (mixerRef.current && actionRef.current && duration > 0) {
+        setStatus("Warming up physics simulation...");
+        actionRef.current.time = 0;
+        mixerRef.current.update(0);
+        for (let f = 0; f <= totalFrames; f++) {
+          mixerRef.current.update(stepDelta);
+          if (baseModel.type === 'vrm') baseModel.object.update(stepDelta);
+          await new Promise(r => setTimeout(r, 5));
+        }
+        // ウォームアップ完了後、時間を0に戻して本番キャプチャへ
+        actionRef.current.time = 0;
+        mixerRef.current.update(0);
+        if (baseModel.type === 'vrm') baseModel.object.update(0);
+      }
+
+      // ── 本番キャプチャ：8方向 × 全フレーム ──
       for(let i = 0; i < 8; i++) {
         const angleDeg = i * 45;
         targetScene.rotation.y = originalRotationY + (angleDeg * Math.PI) / 180;
+
+        // 各方向の最初のフレームへ時間をリセットしてから1フレームずつ積み上げる
+        if (mixerRef.current && actionRef.current && duration > 0) {
+          actionRef.current.time = 0;
+          mixerRef.current.update(0);
+          if (baseModel.type === 'vrm') baseModel.object.update(0);
+        }
         
         for(let frame = 0; frame <= totalFrames; frame++) {
-            const time = frame * (1 / captureFps);
-            
-            if (mixerRef.current && actionRef.current && duration > 0) {
-               actionRef.current.time = time;
-               mixerRef.current.update(0);
-               if (baseModel.type === 'vrm') baseModel.object.update(0);
+            // 物理シミュレーションを「差分（1フレーム分）」で正確にコマ送りする
+            if (mixerRef.current && duration > 0) {
+               mixerRef.current.update(frame === 0 ? 0 : stepDelta);
+               if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
             }
 
             gl.render(scene, camera);
             
             const rawDataUrl = gl.domElement.toDataURL("image/png");
-            
-            // 安全なJSレイヤーでのリサイズ・クロップ処理を噛ませる
             const base64Data = await resizeAndCropToDataUrl(rawDataUrl, outputResolution);
             
             const frameStr = frame.toString().padStart(3, '0');
             zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, base64Data, {base64: true});
 
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
-            // フリーズを回避するための確実なウェイト
-            await new Promise(r => setTimeout(r, 20));
+            await new Promise(r => setTimeout(r, 15));
         }
       }
 
