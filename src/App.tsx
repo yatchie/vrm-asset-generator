@@ -524,7 +524,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget}</h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.2)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -641,16 +641,18 @@ function App() {
             />
           </Selection>
 
-          <EffectComposer ref={composerRef} multisampling={0}>
-            <Outline 
-              blur={false} 
-              edgeStrength={10} 
-              width={globalOutlineWidth * 0.5} 
-              visibleEdgeColor={0x000000} 
-              hiddenEdgeColor={0x000000}
-              blendFunction={BlendFunction.NORMAL}
-            />
-          </EffectComposer>
+          {globalOutlineWidth > 0 && (
+            <EffectComposer ref={composerRef} multisampling={0}>
+              <Outline 
+                blur={false} 
+                edgeStrength={10} 
+                width={globalOutlineWidth * 0.5} 
+                visibleEdgeColor={0x000000} 
+                hiddenEdgeColor={0x000000}
+                blendFunction={BlendFunction.NORMAL}
+              />
+            </EffectComposer>
+          )}
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
         </Canvas>
