@@ -146,38 +146,6 @@ const CharacterModel = ({
   }} />;
 };
 
-// 安全機能：3Dの生Canvasに不可逆な変更を与えず、2Dキャンバス上でのみ正方形クロップと解像度リサイズ＆ピクセル化を適用する処理
-// ── ヘルパー：VRM/Object3D の「見た目上の中心」を取得 ──
-const getCenterY = (obj: THREE.Object3D) => {
-  const box = new THREE.Box3().setFromObject(obj);
-  return (box.min.y + box.max.y) / 2;
-};
-
-// ── ヘルパー：旧式のリサイズ処理（念のため残すが、基本は RenderTarget で解決） ──
-const resizeAndCropToDataUrl = async (originalDataUrl: string, targetSize: number): Promise<string> => {
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = targetSize;
-      canvas.height = targetSize;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // ドット絵感を保つため縮小時の補間を一切無効にする
-        ctx.imageSmoothingEnabled = false; 
-        
-        // 画面が横長/縦長でも中央の正方形領域だけを切り抜く
-        const size = Math.min(img.width, img.height);
-        const sx = (img.width - size) / 2;
-        const sy = (img.height - size) / 2;
-        
-        ctx.drawImage(img, sx, sy, size, size, 0, 0, targetSize, targetSize);
-      }
-      resolve(canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, ""));
-    };
-    img.src = originalDataUrl;
-  });
-};
 
 const SpriteGenerator = ({ 
   baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef,
@@ -196,7 +164,7 @@ const SpriteGenerator = ({
   captureZoom: number;
   captureOffsetY: number;
 }) => {
-  const { gl, scene, camera } = useThree();
+  const { gl, scene } = useThree();
 
   useEffect(() => {
     if (!isGenerating) return; // 【重要】依存配列を最小限にし、無限ループ再発火を阻止
@@ -358,9 +326,6 @@ function App() {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<THREE.AnimationAction | null>(null);
   const composerRef = useRef<any>(null);
-
-  const [vrmOutlineWidth, setVrmOutlineWidth] = useState<number>(0.0); // 0.05
-  const [globalOutlineWidth, setGlobalOutlineWidth] = useState<number>(0.0); // 1.0
 
   // VRM Outline Width Control
   useEffect(() => {
