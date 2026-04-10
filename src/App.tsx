@@ -8,7 +8,7 @@ import { VRMLoaderPlugin, VRMUtils, VRM, VRMHumanBoneName } from '@pixiv/three-v
 import { retargetMixamoClipToVRM, mixamoVRMRigMap } from './loadMixamoAnimation';
 import JSZip from 'jszip';
 import { EffectComposer, wrapEffect, Bloom } from '@react-three/postprocessing';
-import { Effect, EffectAttribute } from 'postprocessing';
+import { Effect, EffectAttribute, RenderPass, EffectPass, EffectComposer as PostComposer } from 'postprocessing';
 import { Uniform } from 'three';
 
 const fragmentShader = `
@@ -47,7 +47,7 @@ const fragmentShader = `
   }
 `;
 
-const ToonOutlineEffect = wrapEffect(class extends Effect {
+class ToonOutlineEffectImpl extends Effect {
   constructor() {
     super("ToonOutlineEffect", fragmentShader, {
       attributes: EffectAttribute.DEPTH,
@@ -70,7 +70,9 @@ const ToonOutlineEffect = wrapEffect(class extends Effect {
     if (nearUniform) nearUniform.value = (this as any).cameraNear || 0.1;
     if (farUniform) farUniform.value = (this as any).cameraFar || 1000.0;
   }
-});
+}
+
+const ToonOutlineEffect = wrapEffect(ToonOutlineEffectImpl);
 
 function SceneEffects({ globalOutlineWidth, composerRef }: { globalOutlineWidth: number, composerRef: any }) {
   const { camera } = useThree();
@@ -148,8 +150,8 @@ const CharacterModel = ({
 
 
 const SpriteGenerator = ({ 
-  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef,
-  captureZoom, captureOffsetY
+  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus,
+  captureZoom, captureOffsetY, globalOutlineWidth
 }: { 
   baseModel: BaseModel | null; 
   animationClip: THREE.AnimationClip | null;
@@ -160,68 +162,74 @@ const SpriteGenerator = ({
   captureFps: number;
   onComplete: () => void; 
   setStatus: (s:string) => void;
-  composerRef: React.MutableRefObject<any>;
   captureZoom: number;
   captureOffsetY: number;
+  globalOutlineWidth: number;
 }) => {
-  const { gl, scene } = useThree();
+  const { scene } = useThree();
 
   useEffect(() => {
     if (!isGenerating) return; // 【重要】依存配列を最小限にし、無限ループ再発火を阻止
     if (!baseModel) { onComplete(); return; }
 
     const generate = async () => {
-      setStatus(`Preparing high-precision ${outputResolution}x${outputResolution} capture...`);
+      setStatus(`Preparing isolated ${outputResolution}x${outputResolution} capture engine...`);
       const zip = new JSZip();
 
-      // 保存・復元用の設定
-      const oldSize = new THREE.Vector2();
-      gl.getSize(oldSize);
-      const oldPixelRatio = gl.getPixelRatio();
+      // 1. キャプチャ専用の独立したレンダラーとキャンバスを生成 (v1.5.3)
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = outputResolution;
+      tempCanvas.height = outputResolution;
+      const tempRenderer = new THREE.WebGLRenderer({
+        canvas: tempCanvas,
+        alpha: true,
+        antialias: false,
+        preserveDrawingBuffer: true,
+        powerPreference: 'high-performance'
+      });
+      tempRenderer.setPixelRatio(1);
+      tempRenderer.setSize(outputResolution, outputResolution);
+      tempRenderer.setClearColor(0x000000, 0);
+
+      // 2. 独立したポストプロセス環境の構築
+      const tempComposer = new PostComposer(tempRenderer, { multisampling: 0 });
       
-      // キャプチャ専用の OrthographicCamera を構築
-      // アスペクト比 1 固定 (正方形)
       const camSize = 2.0 / captureZoom;
-      const captureCamera = new THREE.OrthographicCamera(
-        -camSize / 2, camSize / 2,
-        camSize / 2, -camSize / 2,
-        0.1, 1000
-      );
-      // キャラクターを正面 [0, offsetY, 3] から見据える
+      const captureCamera = new THREE.OrthographicCamera(-camSize/2, camSize/2, camSize/2, -camSize/2, 0.1, 1000);
       captureCamera.position.set(0, captureOffsetY, 5);
       captureCamera.lookAt(0, captureOffsetY, 0);
 
-      // レンダラーを一時的に出力サイズに固定
-      gl.setPixelRatio(1);
-      gl.setSize(outputResolution, outputResolution);
-      if (composerRef.current) {
-         composerRef.current.setSize(outputResolution, outputResolution);
+      tempComposer.addPass(new RenderPass(scene, captureCamera));
+      
+      let outlineEffect: ToonOutlineEffectImpl | null = null;
+      if (globalOutlineWidth > 0) {
+        outlineEffect = new ToonOutlineEffectImpl();
+        (outlineEffect as any).width = 1.0;
+        (outlineEffect as any).strength = globalOutlineWidth;
+        (outlineEffect as any).cameraNear = captureCamera.near;
+        (outlineEffect as any).cameraFar = captureCamera.far;
+        tempComposer.addPass(new EffectPass(captureCamera, outlineEffect));
       }
 
-      const oldClearColor = gl.getClearColor(new THREE.Color());
-      const oldClearAlpha = gl.getClearAlpha();
-      gl.setClearColor(0x000000, 0);
-
-      const targetScene = baseModel.type === 'vrm' ? baseModel.object.scene : baseModel.object;
+      const targetScene = baseModel!.type === 'vrm' ? baseModel!.object.scene : baseModel!.object;
       const originalRotationY = targetScene.rotation.y;
-
       const duration = animationClip ? animationClip.duration : 0;
       const totalFrames = duration > 0 ? Math.floor(duration * captureFps) : 0;
       const stepDelta = duration > 0 ? 1 / captureFps : 0;
 
-      // ── 物理ウォームアップパス ──
+      // 物理ウォームアップ
       if (mixerRef.current && actionRef.current && duration > 0) {
         setStatus("Warming up physics simulation...");
         actionRef.current.time = 0;
         mixerRef.current.update(0);
         for (let f = 0; f <= totalFrames; f++) {
           mixerRef.current.update(stepDelta);
-          if (baseModel.type === 'vrm') baseModel.object.update(stepDelta);
+          if (baseModel!.type === 'vrm') baseModel!.object.update(stepDelta);
           await new Promise(r => setTimeout(r, 2));
         }
         actionRef.current.time = 0;
         mixerRef.current.update(0);
-        if (baseModel.type === 'vrm') baseModel.object.update(0);
+        if (baseModel!.type === 'vrm') baseModel!.object.update(0);
       }
 
       // ── 本番キャプチャ：8方向 × 全フレーム ──
@@ -232,51 +240,33 @@ const SpriteGenerator = ({
         if (mixerRef.current && actionRef.current && duration > 0) {
           actionRef.current.time = 0;
           mixerRef.current.update(0);
-          if (baseModel.type === 'vrm') baseModel.object.update(0);
+          if (baseModel!.type === 'vrm') baseModel!.object.update(0);
         }
         
         for(let frame = 0; frame <= totalFrames; frame++) {
             if (mixerRef.current && duration > 0) {
                mixerRef.current.update(frame === 0 ? 0 : stepDelta);
-               if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
+               if (baseModel!.type === 'vrm') baseModel!.object.update(frame === 0 ? 0 : stepDelta);
             }
 
-            // 【重要】メインキャンバスを物理的にリサイズして解像度を強制 (v1.5.2)
-            if (composerRef.current) {
-               const composer = composerRef.current;
-               const originalCam = composer.mainCamera;
-               
-               // シーン更新後に再描画
-               composer.mainCamera = captureCamera;
-               composer.render();
-               
-               // 標準的な toBlob でキャプチャ
-               const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
-               const arrayBuffer = await blob.arrayBuffer();
-               
-               const frameStr = frame.toString().padStart(3, '0');
-               zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
-
-               composer.mainCamera = originalCam;
-            } else {
-               gl.render(scene, captureCamera);
-               const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
-               const arrayBuffer = await blob.arrayBuffer();
-               zip.file(`dir_${angleDeg}/frame_${frame.toString().padStart(3, '0')}.png`, arrayBuffer);
-            }
+            // 【重要】独立レンダラーで描画
+            tempComposer.render();
+            
+            // 確実にこの時点で canvas からデータを取得
+            const blob = await new Promise<Blob>((res) => tempCanvas.toBlob((b) => res(b!), "image/png"));
+            const arrayBuffer = await blob.arrayBuffer();
+            
+            const frameStr = frame.toString().padStart(3, '0');
+            zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
             
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
         }
       }
 
-      // 復元
+      // 復元と解放
       targetScene.rotation.y = originalRotationY;
-      gl.setClearColor(oldClearColor, oldClearAlpha);
-      gl.setPixelRatio(oldPixelRatio);
-      gl.setSize(oldSize.x, oldSize.y);
-      if (composerRef.current) {
-         composerRef.current.setSize(oldSize.x, oldSize.y);
-      }
+      tempComposer.dispose();
+      tempRenderer.dispose();
 
       setStatus("Zipping all hundreds of frames...");
       const content = await zip.generateAsync({type:"blob"});
@@ -765,9 +755,9 @@ function App() {
              captureFps={captureFps}
              onComplete={() => setIsGenerating(false)}
              setStatus={setStatus} 
-             composerRef={composerRef}
              captureZoom={captureZoom}
              captureOffsetY={captureOffsetY}
+             globalOutlineWidth={globalOutlineWidth}
           />
 
           <SceneEffects globalOutlineWidth={globalOutlineWidth} composerRef={composerRef} />
