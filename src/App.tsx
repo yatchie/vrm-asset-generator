@@ -8,7 +8,7 @@ import { VRMLoaderPlugin, VRMUtils, VRM, VRMHumanBoneName } from '@pixiv/three-v
 import { retargetMixamoClipToVRM, mixamoVRMRigMap } from './loadMixamoAnimation';
 import JSZip from 'jszip';
 import { EffectComposer, wrapEffect, Bloom } from '@react-three/postprocessing';
-import { Effect, EffectAttribute, BlendFunction } from 'postprocessing';
+import { Effect, EffectAttribute } from 'postprocessing';
 import { Uniform } from 'three';
 
 const fragmentShader = `
@@ -47,7 +47,7 @@ const ToonOutlineEffect = wrapEffect(class extends Effect {
       ])
     });
   }
-  update(renderer, inputBuffer, deltaTime) {
+  update(_renderer: any, _inputBuffer: any, _deltaTime: any) {
     const widthUniform = this.uniforms.get("width");
     const strengthUniform = this.uniforms.get("strength");
     if (widthUniform) widthUniform.value = (this as any).width || 1.0;
@@ -574,7 +574,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.6)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.7)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
