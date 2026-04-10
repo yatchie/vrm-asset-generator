@@ -241,25 +241,86 @@ const SpriteGenerator = ({
                if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
             }
 
-            // 【重要】キャプチャ専用カメラでレンダリング
+            // 【重要】オフスクリーン・レンダリングで解像度を強制
             if (composerRef.current) {
-              // composer のカメラを一時的に入れ替え
-               const originalCam = composerRef.current.mainCamera;
-               composerRef.current.mainCamera = captureCamera;
-               // 内部のパスにも波及させるため一度 render を呼ぶ
-               composerRef.current.render();
-               composerRef.current.mainCamera = originalCam;
+               const composer = composerRef.current;
+               const originalCam = composer.mainCamera;
+               const originalRenderToScreen = composer.renderToScreen;
+
+               composer.mainCamera = captureCamera;
+               composer.renderToScreen = false; // 画面ではなく内部バッファに出力
+               composer.render();
+               
+               // composer.outputBuffer からピクセルを読み取る
+               const target = composer.outputBuffer;
+               const pixels = new Uint8Array(outputResolution * outputResolution * 4);
+               gl.readRenderTargetPixels(target, 0, 0, outputResolution, outputResolution, pixels);
+
+               // ピクセルデータを Canvas に変換 (透過対応)
+               const tempCanvas = document.createElement('canvas');
+               tempCanvas.width = outputResolution;
+               tempCanvas.height = outputResolution;
+               const ctx = tempCanvas.getContext('2d')!;
+               const imgData = ctx.createImageData(outputResolution, outputResolution);
+               
+               // WebGL は下から上に描画されるため、上下反転させてコピー
+               for (let y = 0; y < outputResolution; y++) {
+                 const srcY = outputResolution - 1 - y;
+                 const destY = y;
+                 for (let x = 0; x < outputResolution; x++) {
+                   const offset = (x + srcY * outputResolution) * 4;
+                   const destOffset = (x + destY * outputResolution) * 4;
+                   imgData.data[destOffset] = pixels[offset];
+                   imgData.data[destOffset + 1] = pixels[offset + 1];
+                   imgData.data[destOffset + 2] = pixels[offset + 2];
+                   imgData.data[destOffset + 3] = pixels[offset + 3];
+                 }
+               }
+               ctx.putImageData(imgData, 0, 0);
+               
+               const blob = await new Promise<Blob>((res) => tempCanvas.toBlob((b) => res(b!), "image/png"));
+               const arrayBuffer = await blob.arrayBuffer();
+               
+               const frameStr = frame.toString().padStart(3, '0');
+               zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
+
+               composer.renderToScreen = originalRenderToScreen;
+               composer.mainCamera = originalCam;
             } else {
+               // Composer がない場合は直接 RenderTarget へ
+               const target = new THREE.WebGLRenderTarget(outputResolution, outputResolution);
+               gl.setRenderTarget(target);
                gl.render(scene, captureCamera);
+               
+               const pixels = new Uint8Array(outputResolution * outputResolution * 4);
+               gl.readRenderTargetPixels(target, 0, 0, outputResolution, outputResolution, pixels);
+               gl.setRenderTarget(null);
+
+               const tempCanvas = document.createElement('canvas');
+               tempCanvas.width = outputResolution;
+               tempCanvas.height = outputResolution;
+               const ctx = tempCanvas.getContext('2d')!;
+               const imgData = ctx.createImageData(outputResolution, outputResolution);
+               for (let y = 0; y < outputResolution; y++) {
+                 const srcY = outputResolution - 1 - y;
+                 for (let x = 0; x < outputResolution; x++) {
+                   const offset = (x + srcY * outputResolution) * 4;
+                   const destOffset = (x + y * outputResolution) * 4;
+                   imgData.data[destOffset] = pixels[offset];
+                   imgData.data[destOffset + 1] = pixels[offset + 1];
+                   imgData.data[destOffset + 2] = pixels[offset + 2];
+                   imgData.data[destOffset + 3] = pixels[offset + 3];
+                 }
+               }
+               ctx.putImageData(imgData, 0, 0);
+               const blob = await new Promise<Blob>((res) => tempCanvas.toBlob((b) => res(b!), "image/png"));
+               const arrayBuffer = await blob.arrayBuffer();
+               
+               const frameStr = frame.toString().padStart(3, '0');
+               zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
+               target.dispose();
             }
             
-            // canvas 自体が 256x256 等になっているので、そのまま抜き出す
-            const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
-            const arrayBuffer = await blob.arrayBuffer();
-            
-            const frameStr = frame.toString().padStart(3, '0');
-            zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
-
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
         }
       }
@@ -619,7 +680,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.0)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.1)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
