@@ -147,6 +147,13 @@ const CharacterModel = ({
 };
 
 // 安全機能：3Dの生Canvasに不可逆な変更を与えず、2Dキャンバス上でのみ正方形クロップと解像度リサイズ＆ピクセル化を適用する処理
+// ── ヘルパー：VRM/Object3D の「見た目上の中心」を取得 ──
+const getCenterY = (obj: THREE.Object3D) => {
+  const box = new THREE.Box3().setFromObject(obj);
+  return (box.min.y + box.max.y) / 2;
+};
+
+// ── ヘルパー：旧式のリサイズ処理（念のため残すが、基本は RenderTarget で解決） ──
 const resizeAndCropToDataUrl = async (originalDataUrl: string, targetSize: number): Promise<string> => {
   return new Promise(resolve => {
     const img = new Image();
@@ -172,8 +179,8 @@ const resizeAndCropToDataUrl = async (originalDataUrl: string, targetSize: numbe
   });
 };
 
-const SpriteGenerator = ({ 
-  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef
+  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef,
+  captureZoom, captureOffsetY
 }: { 
   baseModel: BaseModel | null; 
   animationClip: THREE.AnimationClip | null;
@@ -185,6 +192,8 @@ const SpriteGenerator = ({
   onComplete: () => void; 
   setStatus: (s:string) => void;
   composerRef: React.MutableRefObject<any>;
+  captureZoom: number;
+  captureOffsetY: number;
 }) => {
   const { gl, scene, camera } = useThree();
 
@@ -193,8 +202,32 @@ const SpriteGenerator = ({
     if (!baseModel) { onComplete(); return; }
 
     const generate = async () => {
-      setStatus(`Preparing to capture ${outputResolution}x${outputResolution} sprites...`);
+      setStatus(`Preparing high-precision ${outputResolution}x${outputResolution} capture...`);
       const zip = new JSZip();
+
+      // 保存・復元用の設定
+      const oldSize = new THREE.Vector2();
+      gl.getSize(oldSize);
+      const oldPixelRatio = gl.getPixelRatio();
+      
+      // キャプチャ専用の OrthographicCamera を構築
+      // アスペクト比 1 固定 (正方形)
+      const camSize = 2.0 / captureZoom;
+      const captureCamera = new THREE.OrthographicCamera(
+        -camSize / 2, camSize / 2,
+        camSize / 2, -camSize / 2,
+        0.1, 1000
+      );
+      // キャラクターを正面 [0, offsetY, 3] から見据える
+      captureCamera.position.set(0, captureOffsetY, 5);
+      captureCamera.lookAt(0, captureOffsetY, 0);
+
+      // レンダラーを一時的に出力サイズに固定
+      gl.setPixelRatio(1);
+      gl.setSize(outputResolution, outputResolution);
+      if (composerRef.current) {
+         composerRef.current.setSize(outputResolution, outputResolution);
+      }
 
       const oldClearColor = gl.getClearColor(new THREE.Color());
       const oldClearAlpha = gl.getClearAlpha();
@@ -208,8 +241,6 @@ const SpriteGenerator = ({
       const stepDelta = duration > 0 ? 1 / captureFps : 0;
 
       // ── 物理ウォームアップパス ──
-      // 揺れものの物理シミュレーションが「0秒から連続的に積み上げ」られるよう、
-      // 撮影前にアニメーション1周分をサイレントで流しておく。
       if (mixerRef.current && actionRef.current && duration > 0) {
         setStatus("Warming up physics simulation...");
         actionRef.current.time = 0;
@@ -217,9 +248,8 @@ const SpriteGenerator = ({
         for (let f = 0; f <= totalFrames; f++) {
           mixerRef.current.update(stepDelta);
           if (baseModel.type === 'vrm') baseModel.object.update(stepDelta);
-          await new Promise(r => setTimeout(r, 5));
+          await new Promise(r => setTimeout(r, 2));
         }
-        // ウォームアップ完了後、時間を0に戻して本番キャプチャへ
         actionRef.current.time = 0;
         mixerRef.current.update(0);
         if (baseModel.type === 'vrm') baseModel.object.update(0);
@@ -230,7 +260,6 @@ const SpriteGenerator = ({
         const angleDeg = i * 45;
         targetScene.rotation.y = originalRotationY + (angleDeg * Math.PI) / 180;
 
-        // 各方向の最初のフレームへ時間をリセットしてから1フレームずつ積み上げる
         if (mixerRef.current && actionRef.current && duration > 0) {
           actionRef.current.time = 0;
           mixerRef.current.update(0);
@@ -238,32 +267,43 @@ const SpriteGenerator = ({
         }
         
         for(let frame = 0; frame <= totalFrames; frame++) {
-            // 物理シミュレーションを「差分（1フレーム分）」で正確にコマ送りする
             if (mixerRef.current && duration > 0) {
                mixerRef.current.update(frame === 0 ? 0 : stepDelta);
                if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
             }
 
-            // ポストエフェクトが有効な場合は Composer でレンダリングし、そうでなければ直接 gl でレンダリング
+            // 【重要】キャプチャ専用カメラでレンダリング
             if (composerRef.current) {
-              composerRef.current.render();
+              // composer のカメラを一時的に入れ替え
+               const originalCam = composerRef.current.mainCamera;
+               composerRef.current.mainCamera = captureCamera;
+               // 内部のパスにも波及させるため一度 render を呼ぶ
+               composerRef.current.render();
+               composerRef.current.mainCamera = originalCam;
             } else {
-              gl.render(scene, camera);
+               gl.render(scene, captureCamera);
             }
             
-            const rawDataUrl = gl.domElement.toDataURL("image/png");
-            const base64Data = await resizeAndCropToDataUrl(rawDataUrl, outputResolution);
+            // canvas 自体が 256x256 等になっているので、そのまま抜き出す
+            const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
+            const arrayBuffer = await blob.arrayBuffer();
             
             const frameStr = frame.toString().padStart(3, '0');
-            zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, base64Data, {base64: true});
+            zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
 
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
-            await new Promise(r => setTimeout(r, 15));
+            // await new Promise(r => setTimeout(r, 5));
         }
       }
 
+      // 復元
       targetScene.rotation.y = originalRotationY;
       gl.setClearColor(oldClearColor, oldClearAlpha);
+      gl.setPixelRatio(oldPixelRatio);
+      gl.setSize(oldSize.x, oldSize.y);
+      if (composerRef.current) {
+         composerRef.current.setSize(oldSize.x, oldSize.y);
+      }
 
       setStatus("Zipping all hundreds of frames...");
       const content = await zip.generateAsync({type:"blob"});
@@ -294,6 +334,13 @@ function App() {
   const [targetFileNames, setTargetFileNames] = useState<Record<string, string>>({
     character: '', rightHand: '', leftHand: ''
   });
+
+  const [vrmOutlineWidth, setVrmOutlineWidth] = useState<number>(0.0);
+  const [globalOutlineWidth, setGlobalOutlineWidth] = useState<number>(0.0);
+
+  // キャプチャ・フレーミング用
+  const [captureZoom, setCaptureZoom] = useState<number>(1.2);
+  const [captureOffsetY, setCaptureOffsetY] = useState<number>(0.85);
 
   const [transforms, setTransforms] = useState<Record<string, {px:number,py:number,pz:number, rx:number,ry:number,rz:number, s:number}>>({
     character: { px:0, py:0, pz:0, rx:0, ry:0, rz:0, s:1 },
@@ -607,7 +654,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.4.6)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.0)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -690,7 +737,24 @@ function App() {
          </div>
       </div>
 
-      <div style={{ flex: 1, position: 'relative', background: '#222' }}>
+      <div style={{ flex: 1, position: 'relative', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* フレーミングガイド枠 */}
+        <div style={{ 
+          position: 'absolute', 
+          width: 400, // 表示上のサイズ（固定またはスケーリング）
+          height: 400, 
+          border: '2px solid rgba(79, 195, 247, 0.5)', 
+          pointerEvents: 'none', 
+          zIndex: 5,
+          boxShadow: '0 0 0 4000px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'flex-end',
+          padding: 5
+        }}>
+          <span style={{ color: '#4fc3f7', fontSize: 10, fontWeight: 'bold' }}>CAPTURE AREA ({outputResolution}px)</span>
+        </div>
+
         <Canvas gl={{ preserveDrawingBuffer: true, alpha: true, antialias: false, stencil: true }} camera={{ position: [0, 1.2, 3], fov: 45 }}>
           <ambientLight intensity={1.5} />
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
@@ -718,6 +782,8 @@ function App() {
              onComplete={() => setIsGenerating(false)}
              setStatus={setStatus} 
              composerRef={composerRef}
+             captureZoom={captureZoom}
+             captureOffsetY={captureOffsetY}
           />
 
           <SceneEffects globalOutlineWidth={globalOutlineWidth} composerRef={composerRef} />
