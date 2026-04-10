@@ -14,25 +14,35 @@ import { Uniform } from 'three';
 const fragmentShader = `
   uniform float width;
   uniform float strength;
+  uniform float cameraNear;
+  uniform float cameraFar;
+
+  float getLinearDepth(vec2 uv) {
+    float d = texture2D(depthBuffer, uv).r;
+    return (2.0 * cameraNear) / (cameraFar + cameraNear - d * (cameraFar - cameraNear));
+  }
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
     vec2 texelSize = vec2(width) / resolution;
     
-    float d = texture2D(depthBuffer, uv).r;
-    float d1 = texture2D(depthBuffer, uv + vec2(-texelSize.x, -texelSize.y)).r;
-    float d2 = texture2D(depthBuffer, uv + vec2(0, -texelSize.y)).r;
-    float d3 = texture2D(depthBuffer, uv + vec2(texelSize.x, -texelSize.y)).r;
-    float d4 = texture2D(depthBuffer, uv + vec2(-texelSize.x, 0)).r;
-    float d6 = texture2D(depthBuffer, uv + vec2(texelSize.x, 0)).r;
-    float d7 = texture2D(depthBuffer, uv + vec2(-texelSize.x, texelSize.y)).r;
-    float d8 = texture2D(depthBuffer, uv + vec2(0, texelSize.y)).r;
-    float d9 = texture2D(depthBuffer, uv + vec2(texelSize.x, texelSize.y)).r;
+    float d = getLinearDepth(uv);
+    float d1 = getLinearDepth(uv + vec2(-texelSize.x, -texelSize.y));
+    float d2 = getLinearDepth(uv + vec2(0, -texelSize.y));
+    float d3 = getLinearDepth(uv + vec2(texelSize.x, -texelSize.y));
+    float d4 = getLinearDepth(uv + vec2(-texelSize.x, 0));
+    float d6 = getLinearDepth(uv + vec2(texelSize.x, 0));
+    float d7 = getLinearDepth(uv + vec2(-texelSize.x, texelSize.y));
+    float d8 = getLinearDepth(uv + vec2(0, texelSize.y));
+    float d9 = getLinearDepth(uv + vec2(texelSize.x, texelSize.y));
 
     float gx = (d3 + 2.0*d6 + d9) - (d1 + 2.0*d4 + d7);
     float gy = (d7 + 2.0*d8 + d9) - (d1 + 2.0*d2 + d3);
     float edge = sqrt(gx*gx + gy*gy);
     
-    float edgeFactor = smoothstep(0.0001, 0.0005, edge * strength);
+    // 距離に応じて閾値を調整
+    float threshold = 0.01 / (strength + 0.0001);
+    float edgeFactor = smoothstep(threshold, threshold * 2.0, edge);
+    
     outputColor = vec4(mix(inputColor.rgb, vec3(0.0), edgeFactor), inputColor.a);
   }
 `;
@@ -43,15 +53,22 @@ const ToonOutlineEffect = wrapEffect(class extends Effect {
       attributes: EffectAttribute.DEPTH,
       uniforms: new Map([
         ["width", new Uniform(1.0)],
-        ["strength", new Uniform(1.0)]
+        ["strength", new Uniform(1.0)],
+        ["cameraNear", new Uniform(0.1)],
+        ["cameraFar", new Uniform(100.0)]
       ])
     });
   }
   update(_renderer: any, _inputBuffer: any, _deltaTime: any) {
     const widthUniform = this.uniforms.get("width");
     const strengthUniform = this.uniforms.get("strength");
+    const nearUniform = this.uniforms.get("cameraNear");
+    const farUniform = this.uniforms.get("cameraFar");
+    
     if (widthUniform) widthUniform.value = (this as any).width || 1.0;
     if (strengthUniform) strengthUniform.value = (this as any).strength || 1.0;
+    if (nearUniform) nearUniform.value = (this as any).cameraNear || 0.1;
+    if (farUniform) farUniform.value = (this as any).cameraFar || 1000.0;
   }
 });
 
@@ -349,6 +366,8 @@ function App() {
     }
   }, [equipments, transforms, baseModel]);
 
+  const { camera } = useThree();
+
   const updateTransform = (axis: string, value: number) => {
     setTransforms(prev => ({ ...prev, [adjustTarget]: { ...prev[adjustTarget], [axis]: value } }));
   };
@@ -574,7 +593,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.7)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.8)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -691,7 +710,9 @@ function App() {
               {globalOutlineWidth > 0 ? (
                 <ToonOutlineEffect 
                   width={1.0} 
-                  strength={globalOutlineWidth * 10.0} 
+                  strength={globalOutlineWidth}
+                  cameraNear={camera.near}
+                  cameraFar={camera.far}
                 />
               ) : <Bloom intensity={0} />}
           </EffectComposer>
