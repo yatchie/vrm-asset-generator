@@ -7,7 +7,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { retargetMixamoClipToVRM, mixamoVRMRigMap } from './loadMixamoAnimation';
 import JSZip from 'jszip';
-import { EffectComposer, Outline, Selection, Select } from '@react-three/postprocessing';
+import { EffectComposer, Outline, Selection, Select, Bloom } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 
 type BaseModel = 
