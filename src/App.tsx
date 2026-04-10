@@ -39,9 +39,9 @@ const fragmentShader = `
     float gy = (d7 + 2.0*d8 + d9) - (d1 + 2.0*d2 + d3);
     float edge = sqrt(gx*gx + gy*gy);
     
-    // 距離に応じて閾値を調整
-    float threshold = 0.01 / (strength + 0.0001);
-    float edgeFactor = smoothstep(threshold, threshold * 2.0, edge);
+    // 閾値を大幅に下げて、小さな段差（足の間など）も検知しやすくする
+    float threshold = 0.0005 / (strength * 100.0 + 0.1);
+    float edgeFactor = smoothstep(threshold, threshold * 1.5, edge);
     
     outputColor = vec4(mix(inputColor.rgb, vec3(0.0), edgeFactor), inputColor.a);
   }
@@ -607,7 +607,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.9)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.4.0)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -692,6 +692,7 @@ function App() {
 
       <div style={{ flex: 1, position: 'relative' }}>
         <Canvas gl={{ preserveDrawingBuffer: true, alpha: true, antialias: false, stencil: true }} camera={{ position: [0, 1.2, 3], fov: 45 }}>
+          <color attach="background" args={["#222222"]} />
           <ambientLight intensity={1.5} />
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
           <Environment preset="city" />
