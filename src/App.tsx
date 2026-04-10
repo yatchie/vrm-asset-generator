@@ -529,7 +529,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.3)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.4)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -613,7 +613,7 @@ function App() {
       </div>
 
       <div style={{ flex: 1, position: 'relative' }}>
-        <Canvas gl={{ preserveDrawingBuffer: true, alpha: true, antialias: false }} camera={{ position: [0, 1.2, 3], fov: 45 }}>
+        <Canvas gl={{ preserveDrawingBuffer: true, alpha: true, antialias: false, stencil: true }} camera={{ position: [0, 1.2, 3], fov: 45 }}>
           <ambientLight intensity={1.5} />
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
           <Environment preset="city" />
@@ -652,8 +652,8 @@ function App() {
               また、コンテキストの不安定化を防ぐため常にマウントし、
               内部で Outline の表示・非表示を切り替える。
           */}
-          <EffectComposer ref={composerRef} multisampling={0}>
-              {globalOutlineWidth > 0 && (
+          <EffectComposer ref={composerRef} multisampling={0} disableNormalPass>
+              {globalOutlineWidth > 0 ? (
                 <Outline 
                   blur={false} 
                   edgeStrength={10} 
@@ -662,7 +662,7 @@ function App() {
                   hiddenEdgeColor={0x000000}
                   blendFunction={BlendFunction.NORMAL}
                 />
-              )}
+              ) : null}
           </EffectComposer>
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
