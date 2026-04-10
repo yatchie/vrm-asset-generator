@@ -662,7 +662,7 @@ function App() {
                   hiddenEdgeColor={0x000000}
                   blendFunction={BlendFunction.NORMAL}
                 />
-              ) : null}
+              ) : <React.Fragment />}
           </EffectComposer>
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
