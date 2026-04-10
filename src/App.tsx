@@ -179,6 +179,7 @@ const resizeAndCropToDataUrl = async (originalDataUrl: string, targetSize: numbe
   });
 };
 
+const SpriteGenerator = ({ 
   baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef,
   captureZoom, captureOffsetY
 }: { 
