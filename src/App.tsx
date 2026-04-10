@@ -414,7 +414,12 @@ function App() {
             const vrmData = gltf.userData.vrm as VRM;
             if (vrmData) {
               VRMUtils.removeUnnecessaryVertices(gltf.scene);
-              VRMUtils.removeUnnecessaryJoints(gltf.scene);
+              // Use combineSkeletons as per deprecation warning
+              if ((VRMUtils as any).combineSkeletons) {
+                (VRMUtils as any).combineSkeletons(gltf.scene);
+              } else {
+                VRMUtils.removeUnnecessaryJoints(gltf.scene);
+              }
               vrmData.scene.traverse((obj) => { obj.frustumCulled = false; });
               
               const humBones = Object.keys(equipments) as VRMHumanBoneName[];
@@ -524,7 +529,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.2)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.3.3)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -641,18 +646,24 @@ function App() {
             />
           </Selection>
 
-          {globalOutlineWidth > 0 && (
-            <EffectComposer ref={composerRef} multisampling={0}>
-              <Outline 
-                blur={false} 
-                edgeStrength={10} 
-                width={globalOutlineWidth * 0.5} 
-                visibleEdgeColor={0x000000} 
-                hiddenEdgeColor={0x000000}
-                blendFunction={BlendFunction.NORMAL}
-              />
-            </EffectComposer>
-          )}
+          {/* 
+              Framebuffer incomplete (zero size) エラーを防ぐため、
+              Canvasサイズが確定してからマウントする。
+              また、コンテキストの不安定化を防ぐため常にマウントし、
+              内部で Outline の表示・非表示を切り替える。
+          */}
+          <EffectComposer ref={composerRef} multisampling={0}>
+              {globalOutlineWidth > 0 && (
+                <Outline 
+                  blur={false} 
+                  edgeStrength={10} 
+                  width={globalOutlineWidth * 0.5} 
+                  visibleEdgeColor={0x000000} 
+                  hiddenEdgeColor={0x000000}
+                  blendFunction={BlendFunction.NORMAL}
+                />
+              )}
+          </EffectComposer>
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
         </Canvas>
