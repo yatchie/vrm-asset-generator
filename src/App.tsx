@@ -612,19 +612,7 @@ function App() {
           <ambientLight intensity={1.5} />
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
           <Environment preset="city" />
-          
           <Selection>
-            <EffectComposer ref={composerRef}>
-              <Outline 
-                blur={false} 
-                edgeStrength={100} 
-                width={globalOutlineWidth * 2} 
-                visibleEdgeColor={0x000000} 
-                hiddenEdgeColor={0x000000}
-                blendFunction={BlendFunction.NORMAL}
-              />
-            </EffectComposer>
-
             <Select enabled={globalOutlineWidth > 0}>
               <CharacterModel 
                 baseModel={baseModel} 
@@ -636,22 +624,33 @@ function App() {
                 togglePause={() => setIsPaused(p => !p)} 
               />
             </Select>
+
+            {!isGenerating && <gridHelper args={[10, 10]} />}
+            
+            <SpriteGenerator 
+               baseModel={baseModel} 
+               animationClip={animationClip}
+               mixerRef={mixerRef}
+               actionRef={actionRef}
+               isGenerating={isGenerating} 
+               outputResolution={outputResolution}
+               captureFps={captureFps}
+               onComplete={() => setIsGenerating(false)}
+               setStatus={setStatus} 
+               composerRef={composerRef}
+            />
           </Selection>
 
-          {!isGenerating && <gridHelper args={[10, 10]} />}
-          
-          <SpriteGenerator 
-             baseModel={baseModel} 
-             animationClip={animationClip}
-             mixerRef={mixerRef}
-             actionRef={actionRef}
-             isGenerating={isGenerating} 
-             outputResolution={outputResolution}
-             captureFps={captureFps}
-             onComplete={() => setIsGenerating(false)}
-             setStatus={setStatus} 
-             composerRef={composerRef}
-          />
+          <EffectComposer ref={composerRef} multisampling={0}>
+            <Outline 
+              blur={false} 
+              edgeStrength={10} 
+              width={globalOutlineWidth * 0.5} 
+              visibleEdgeColor={0x000000} 
+              hiddenEdgeColor={0x000000}
+              blendFunction={BlendFunction.NORMAL}
+            />
+          </EffectComposer>
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
         </Canvas>
