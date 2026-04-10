@@ -241,84 +241,28 @@ const SpriteGenerator = ({
                if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
             }
 
-            // 【重要】オフスクリーン・レンダリングで解像度を強制
+            // 【重要】メインキャンバスを物理的にリサイズして解像度を強制 (v1.5.2)
             if (composerRef.current) {
                const composer = composerRef.current;
                const originalCam = composer.mainCamera;
-               const originalRenderToScreen = composer.renderToScreen;
-
+               
+               // シーン更新後に再描画
                composer.mainCamera = captureCamera;
-               composer.renderToScreen = false; // 画面ではなく内部バッファに出力
                composer.render();
                
-               // composer.outputBuffer からピクセルを読み取る
-               const target = composer.outputBuffer;
-               const pixels = new Uint8Array(outputResolution * outputResolution * 4);
-               gl.readRenderTargetPixels(target, 0, 0, outputResolution, outputResolution, pixels);
-
-               // ピクセルデータを Canvas に変換 (透過対応)
-               const tempCanvas = document.createElement('canvas');
-               tempCanvas.width = outputResolution;
-               tempCanvas.height = outputResolution;
-               const ctx = tempCanvas.getContext('2d')!;
-               const imgData = ctx.createImageData(outputResolution, outputResolution);
-               
-               // WebGL は下から上に描画されるため、上下反転させてコピー
-               for (let y = 0; y < outputResolution; y++) {
-                 const srcY = outputResolution - 1 - y;
-                 const destY = y;
-                 for (let x = 0; x < outputResolution; x++) {
-                   const offset = (x + srcY * outputResolution) * 4;
-                   const destOffset = (x + destY * outputResolution) * 4;
-                   imgData.data[destOffset] = pixels[offset];
-                   imgData.data[destOffset + 1] = pixels[offset + 1];
-                   imgData.data[destOffset + 2] = pixels[offset + 2];
-                   imgData.data[destOffset + 3] = pixels[offset + 3];
-                 }
-               }
-               ctx.putImageData(imgData, 0, 0);
-               
-               const blob = await new Promise<Blob>((res) => tempCanvas.toBlob((b) => res(b!), "image/png"));
+               // 標準的な toBlob でキャプチャ
+               const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
                const arrayBuffer = await blob.arrayBuffer();
                
                const frameStr = frame.toString().padStart(3, '0');
                zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
 
-               composer.renderToScreen = originalRenderToScreen;
                composer.mainCamera = originalCam;
             } else {
-               // Composer がない場合は直接 RenderTarget へ
-               const target = new THREE.WebGLRenderTarget(outputResolution, outputResolution);
-               gl.setRenderTarget(target);
                gl.render(scene, captureCamera);
-               
-               const pixels = new Uint8Array(outputResolution * outputResolution * 4);
-               gl.readRenderTargetPixels(target, 0, 0, outputResolution, outputResolution, pixels);
-               gl.setRenderTarget(null);
-
-               const tempCanvas = document.createElement('canvas');
-               tempCanvas.width = outputResolution;
-               tempCanvas.height = outputResolution;
-               const ctx = tempCanvas.getContext('2d')!;
-               const imgData = ctx.createImageData(outputResolution, outputResolution);
-               for (let y = 0; y < outputResolution; y++) {
-                 const srcY = outputResolution - 1 - y;
-                 for (let x = 0; x < outputResolution; x++) {
-                   const offset = (x + srcY * outputResolution) * 4;
-                   const destOffset = (x + y * outputResolution) * 4;
-                   imgData.data[destOffset] = pixels[offset];
-                   imgData.data[destOffset + 1] = pixels[offset + 1];
-                   imgData.data[destOffset + 2] = pixels[offset + 2];
-                   imgData.data[destOffset + 3] = pixels[offset + 3];
-                 }
-               }
-               ctx.putImageData(imgData, 0, 0);
-               const blob = await new Promise<Blob>((res) => tempCanvas.toBlob((b) => res(b!), "image/png"));
+               const blob = await new Promise<Blob>((res) => gl.domElement.toBlob((b) => res(b!), "image/png"));
                const arrayBuffer = await blob.arrayBuffer();
-               
-               const frameStr = frame.toString().padStart(3, '0');
-               zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
-               target.dispose();
+               zip.file(`dir_${angleDeg}/frame_${frame.toString().padStart(3, '0')}.png`, arrayBuffer);
             }
             
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
