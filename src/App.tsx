@@ -17,8 +17,11 @@ const fragmentShader = `
   uniform float cameraNear;
   uniform float cameraFar;
 
+  uniform float isOrthographic;
+
   float getLinearDepth(vec2 uv) {
     float d = texture2D(depthBuffer, uv).r;
+    if (isOrthographic > 0.5) return d;
     return (2.0 * cameraNear) / (cameraFar + cameraNear - d * (cameraFar - cameraNear));
   }
 
@@ -54,6 +57,7 @@ class ToonOutlineEffectImpl extends Effect {
       uniforms: new Map([
         ["width", new Uniform(1.0)],
         ["strength", new Uniform(1.0)],
+        ["isOrthographic", new Uniform(0.0)],
         ["cameraNear", new Uniform(0.1)],
         ["cameraFar", new Uniform(100.0)]
       ])
@@ -62,11 +66,13 @@ class ToonOutlineEffectImpl extends Effect {
   update(_renderer: any, _inputBuffer: any, _deltaTime: any) {
     const widthUniform = this.uniforms.get("width");
     const strengthUniform = this.uniforms.get("strength");
+    const orthoUniform = this.uniforms.get("isOrthographic");
     const nearUniform = this.uniforms.get("cameraNear");
     const farUniform = this.uniforms.get("cameraFar");
     
     if (widthUniform) widthUniform.value = (this as any).width || 1.0;
     if (strengthUniform) strengthUniform.value = (this as any).strength || 1.0;
+    if (orthoUniform) orthoUniform.value = (this as any).isOrthographic || 0.0;
     if (nearUniform) nearUniform.value = (this as any).cameraNear || 0.1;
     if (farUniform) farUniform.value = (this as any).cameraFar || 1000.0;
   }
@@ -82,6 +88,7 @@ function SceneEffects({ globalOutlineWidth, composerRef }: { globalOutlineWidth:
         <ToonOutlineEffect 
           width={1.0} 
           strength={globalOutlineWidth}
+          isOrthographic={camera instanceof THREE.OrthographicCamera ? 1.0 : 0.0}
           cameraNear={camera.near}
           cameraFar={camera.far}
         />
@@ -206,6 +213,7 @@ const SpriteGenerator = ({
         outlineEffect = new ToonOutlineEffectImpl();
         (outlineEffect as any).width = 1.0;
         (outlineEffect as any).strength = globalOutlineWidth;
+        (outlineEffect as any).isOrthographic = 1.0; // キャプチャカメラは常に Ortho
         (outlineEffect as any).cameraNear = captureCamera.near;
         (outlineEffect as any).cameraFar = captureCamera.far;
         tempComposer.addPass(new EffectPass(captureCamera, outlineEffect));
