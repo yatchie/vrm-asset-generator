@@ -607,7 +607,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.4.5)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.4.6)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -643,7 +643,7 @@ function App() {
            </div>
            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, margin: '5px 0'}}>
              <span style={{width: 80}}>Global Post</span>
-             <input type="range" min="0" max="2.0" step="0.001" value={globalOutlineWidth} onChange={e => setGlobalOutlineWidth(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
+             <input type="range" min="0" max="0.1" step="0.001" value={globalOutlineWidth} onChange={e => setGlobalOutlineWidth(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
              <span style={{width: 40, textAlign: 'right'}}>{globalOutlineWidth.toFixed(3)}</span>
            </div>
         </div>
