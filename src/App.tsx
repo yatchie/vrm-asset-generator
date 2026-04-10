@@ -261,7 +261,6 @@ const SpriteGenerator = ({
             zip.file(`dir_${angleDeg}/frame_${frameStr}.png`, arrayBuffer);
 
             setStatus(`Capturing Dir: ${angleDeg}°, Frame: ${frame}/${totalFrames}`);
-            // await new Promise(r => setTimeout(r, 5));
         }
       }
 
@@ -658,6 +657,20 @@ function App() {
              <span style={{width: 80}}>Global Post</span>
              <input type="range" min="0" max="0.1" step="0.001" value={globalOutlineWidth} onChange={e => setGlobalOutlineWidth(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
              <span style={{width: 40, textAlign: 'right'}}>{globalOutlineWidth.toFixed(3)}</span>
+           </div>
+        </div>
+
+        <div style={{marginTop: 15, borderTop: '1px solid #444', paddingTop: 10}}>
+           <h4 style={{margin: '0 0 10px 0', fontSize: 13}}>Capture Framing (Off-screen)</h4>
+           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, margin: '5px 0'}}>
+             <span style={{width: 80}}>Zoom</span>
+             <input type="range" min="0.1" max="5" step="0.01" value={captureZoom} onChange={e => setCaptureZoom(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
+             <span style={{width: 40, textAlign: 'right'}}>{captureZoom.toFixed(2)}x</span>
+           </div>
+           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, margin: '5px 0'}}>
+             <span style={{width: 80}}>Height Offset</span>
+             <input type="range" min="0" max="4" step="0.01" value={captureOffsetY} onChange={e => setCaptureOffsetY(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
+             <span style={{width: 40, textAlign: 'right'}}>{captureOffsetY.toFixed(2)}m</span>
            </div>
         </div>
       </div>
