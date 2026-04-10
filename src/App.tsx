@@ -7,6 +7,8 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import { retargetMixamoClipToVRM, mixamoVRMRigMap } from './loadMixamoAnimation';
 import JSZip from 'jszip';
+import { EffectComposer, Outline, Selection, Select } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
 
 type BaseModel = 
   | { type: 'vrm', object: VRM }
@@ -93,7 +95,7 @@ const resizeAndCropToDataUrl = async (originalDataUrl: string, targetSize: numbe
 };
 
 const SpriteGenerator = ({ 
-  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus 
+  baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus, composerRef
 }: { 
   baseModel: BaseModel | null; 
   animationClip: THREE.AnimationClip | null;
@@ -104,6 +106,7 @@ const SpriteGenerator = ({
   captureFps: number;
   onComplete: () => void; 
   setStatus: (s:string) => void;
+  composerRef: React.MutableRefObject<any>;
 }) => {
   const { gl, scene, camera } = useThree();
 
@@ -163,7 +166,12 @@ const SpriteGenerator = ({
                if (baseModel.type === 'vrm') baseModel.object.update(frame === 0 ? 0 : stepDelta);
             }
 
-            gl.render(scene, camera);
+            // ポストエフェクトが有効な場合は Composer でレンダリングし、そうでなければ直接 gl でレンダリング
+            if (composerRef.current) {
+              composerRef.current.render();
+            } else {
+              gl.render(scene, camera);
+            }
             
             const rawDataUrl = gl.domElement.toDataURL("image/png");
             const base64Data = await resizeAndCropToDataUrl(rawDataUrl, outputResolution);
@@ -223,6 +231,27 @@ function App() {
 
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<THREE.AnimationAction | null>(null);
+  const composerRef = useRef<any>(null);
+
+  const [vrmOutlineWidth, setVrmOutlineWidth] = useState<number>(0.0); // 0.05
+  const [globalOutlineWidth, setGlobalOutlineWidth] = useState<number>(0.0); // 1.0
+
+  // VRM Outline Width Control
+  useEffect(() => {
+    if (baseModel?.type === 'vrm') {
+      baseModel.object.scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.material) {
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((m: any) => {
+            if (m.isMToonMaterial) {
+              m.outlineWidthFactor = vrmOutlineWidth;
+            }
+          });
+        }
+      });
+    }
+  }, [baseModel, vrmOutlineWidth]);
 
   // Auto-Save to LocalStorage (Multi-Character Support)
   useEffect(() => {
@@ -518,8 +547,22 @@ function App() {
         ))}
         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 14, margin: '8px 0'}}>
              <span style={{width: 30}}>S</span>
-             <input type="range" min="-3" max="1.5" step="0.01" value={Math.log10(t.s)} onChange={e => updateTransform('s', Math.pow(10, parseFloat(e.target.value)))} style={{flex: 1, margin: '0 10px'}}/>
-             <span style={{width: 45, textAlign: 'right'}}>{t.s < 0.1 ? t.s.toFixed(3) : t.s.toFixed(2)}</span>
+             <input type="range" min="0.01" max="5.0" step="0.01" value={t.s} onChange={e => updateTransform('s', parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}}/>
+             <span style={{width: 45, textAlign: 'right'}}>{t.s.toFixed(2)}</span>
+        </div>
+
+        <div style={{marginTop: 15, borderTop: '1px solid #444', paddingTop: 10}}>
+           <h4 style={{margin: '0 0 10px 0', fontSize: 13}}>Outline Style</h4>
+           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, margin: '5px 0'}}>
+             <span style={{width: 80}}>VRM Internal</span>
+             <input type="range" min="0" max="0.1" step="0.001" value={vrmOutlineWidth} onChange={e => setVrmOutlineWidth(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
+             <span style={{width: 40, textAlign: 'right'}}>{(vrmOutlineWidth * 100).toFixed(1)}</span>
+           </div>
+           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, margin: '5px 0'}}>
+             <span style={{width: 80}}>Global Post</span>
+             <input type="range" min="0" max="5" step="0.1" value={globalOutlineWidth} onChange={e => setGlobalOutlineWidth(parseFloat(e.target.value))} style={{flex: 1, margin: '0 10px'}} />
+             <span style={{width: 40, textAlign: 'right'}}>{globalOutlineWidth.toFixed(1)}</span>
+           </div>
         </div>
       </div>
 
@@ -570,15 +613,30 @@ function App() {
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
           <Environment preset="city" />
           
-          <CharacterModel 
-            baseModel={baseModel} 
-            animationClip={animationClip} 
-            mixerRef={mixerRef}
-            actionRef={actionRef}
-            isGenerating={isGenerating} 
-            isPaused={isPaused} 
-            togglePause={() => setIsPaused(p => !p)} 
-          />
+          <Selection>
+            <EffectComposer ref={composerRef}>
+              <Outline 
+                blur={false} 
+                edgeStrength={100} 
+                width={globalOutlineWidth * 2} 
+                visibleEdgeColor={0x000000} 
+                hiddenEdgeColor={0x000000}
+                blendFunction={BlendFunction.NORMAL}
+              />
+            </EffectComposer>
+
+            <Select enabled={globalOutlineWidth > 0}>
+              <CharacterModel 
+                baseModel={baseModel} 
+                animationClip={animationClip} 
+                mixerRef={mixerRef}
+                actionRef={actionRef}
+                isGenerating={isGenerating} 
+                isPaused={isPaused} 
+                togglePause={() => setIsPaused(p => !p)} 
+              />
+            </Select>
+          </Selection>
 
           {!isGenerating && <gridHelper args={[10, 10]} />}
           
@@ -592,6 +650,7 @@ function App() {
              captureFps={captureFps}
              onComplete={() => setIsGenerating(false)}
              setStatus={setStatus} 
+             composerRef={composerRef}
           />
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
