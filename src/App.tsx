@@ -788,6 +788,8 @@ function App() {
              globalOutlineWidth={globalOutlineWidth}
           />
 
+          <CaptureGuide zoom={captureZoom} offsetY={captureOffsetY} />
+
           <SceneEffects globalOutlineWidth={globalOutlineWidth} composerRef={composerRef} />
 
           <OrbitControls target={[0, 1, 0]} enablePan={true} enableDamping={true} />
