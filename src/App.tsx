@@ -156,6 +156,38 @@ const CharacterModel = ({
 };
 
 
+function CaptureGuide({ zoom, offsetY }: { zoom: number, offsetY: number }) {
+  const camSize = 2.0 / zoom;
+  const half = camSize / 2;
+  const points = useRef([
+    new THREE.Vector3(-half, -half, 0),
+    new THREE.Vector3(half, -half, 0),
+    new THREE.Vector3(half, half, 0),
+    new THREE.Vector3(-half, half, 0),
+    new THREE.Vector3(-half, -half, 0),
+  ]);
+
+  useEffect(() => {
+    points.current = [
+      new THREE.Vector3(-half, -half, 0),
+      new THREE.Vector3(half, -half, 0),
+      new THREE.Vector3(half, half, 0),
+      new THREE.Vector3(-half, half, 0),
+      new THREE.Vector3(-half, -half, 0),
+    ];
+  }, [half]);
+
+  return (
+    <group position={[0, offsetY, 0]}>
+      <line>
+        <bufferGeometry attach="geometry" onUpdate={(self) => self.setFromPoints(points.current)} />
+        <lineBasicMaterial attach="material" color="#4fc3f7" transparent opacity={0.6} linewidth={2} depthTest={false} />
+      </line>
+      <gridHelper args={[camSize, 4, '#4fc3f7', '#444']} rotation={[Math.PI/2, 0, 0]} />
+    </group>
+  );
+}
+
 const SpriteGenerator = ({ 
   baseModel, animationClip, mixerRef, actionRef, isGenerating, outputResolution, captureFps, onComplete, setStatus,
   captureZoom, captureOffsetY, globalOutlineWidth
@@ -173,7 +205,7 @@ const SpriteGenerator = ({
   captureOffsetY: number;
   globalOutlineWidth: number;
 }) => {
-  const { scene } = useThree();
+  const { gl, scene } = useThree();
 
   useEffect(() => {
     if (!isGenerating) return; // 【重要】依存配列を最小限にし、無限ループ再発火を阻止
@@ -208,10 +240,15 @@ const SpriteGenerator = ({
 
       tempComposer.addPass(new RenderPass(scene, captureCamera));
       
+      // 解像度の比率を計算してアウトラインの太さを補正 (v1.5.5)
+      // メイン画面の高さ (gl.domElement.height) と出力解像度の比
+      const screenHeight = gl.domElement.height;
+      const outlineRatio = outputResolution / screenHeight;
+
       let outlineEffect: ToonOutlineEffectImpl | null = null;
       if (globalOutlineWidth > 0) {
         outlineEffect = new ToonOutlineEffectImpl();
-        (outlineEffect as any).width = 1.0;
+        (outlineEffect as any).width = outlineRatio; // 画面での見た目と同じ太さになるよう補正
         (outlineEffect as any).strength = globalOutlineWidth;
         (outlineEffect as any).isOrthographic = 1.0; // キャプチャカメラは常に Ortho
         (outlineEffect as any).cameraNear = captureCamera.near;
@@ -622,7 +659,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.1)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.5)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -720,23 +757,6 @@ function App() {
       </div>
 
       <div style={{ flex: 1, position: 'relative', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {/* フレーミングガイド枠 */}
-        <div style={{ 
-          position: 'absolute', 
-          width: 400, // 表示上のサイズ（固定またはスケーリング）
-          height: 400, 
-          border: '2px solid rgba(79, 195, 247, 0.5)', 
-          pointerEvents: 'none', 
-          zIndex: 5,
-          boxShadow: '0 0 0 4000px rgba(0,0,0,0.3)',
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'flex-end',
-          padding: 5
-        }}>
-          <span style={{ color: '#4fc3f7', fontSize: 10, fontWeight: 'bold' }}>CAPTURE AREA ({outputResolution}px)</span>
-        </div>
-
         <Canvas gl={{ preserveDrawingBuffer: true, alpha: true, antialias: false, stencil: true }} camera={{ position: [0, 1.2, 3], fov: 45 }}>
           <ambientLight intensity={1.5} />
           <directionalLight position={[1, 1, 1]} intensity={2.0} />
