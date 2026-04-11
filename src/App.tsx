@@ -156,8 +156,19 @@ const CharacterModel = ({
 };
 
 
-function CaptureGuide({ zoom, offsetY }: { zoom: number, offsetY: number }) {
-  const camSize = 2.0 / zoom;
+function MainCameraSetup() {
+  const { camera } = useThree();
+  useEffect(() => {
+    camera.layers.enable(1); // メイン画面では UI レイヤーも表示する
+  }, [camera]);
+  return null;
+}
+
+function CaptureGuide({ zoom, offsetY, isGenerating }: { zoom: number, offsetY: number, isGenerating: boolean }) {
+  if (isGenerating) return null; // 撮影中はシーンから完全に消去して混入を防ぐ
+
+  // 枠が撮影範囲ギリギリでエッジノイズにならないよう、1px分(0.5%)だけ外側に表示
+  const camSize = (2.0 / zoom) * 1.005;
   const half = camSize / 2;
   const points = useRef([
     new THREE.Vector3(-half, -half, 0),
@@ -660,7 +671,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.6)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.7)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -774,6 +785,8 @@ function App() {
 
           {!isGenerating && <gridHelper args={[10, 10]} onUpdate={(s) => s.layers.set(1)} />}
           
+          <MainCameraSetup />
+          
           <SpriteGenerator 
              baseModel={baseModel} 
              animationClip={animationClip}
@@ -789,7 +802,7 @@ function App() {
              globalOutlineWidth={globalOutlineWidth}
           />
 
-          <CaptureGuide zoom={captureZoom} offsetY={captureOffsetY} />
+          <CaptureGuide zoom={captureZoom} offsetY={captureOffsetY} isGenerating={isGenerating} />
 
           <SceneEffects globalOutlineWidth={globalOutlineWidth} composerRef={composerRef} />
 
