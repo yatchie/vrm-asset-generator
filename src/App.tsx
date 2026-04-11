@@ -178,12 +178,12 @@ function CaptureGuide({ zoom, offsetY }: { zoom: number, offsetY: number }) {
   }, [half]);
 
   return (
-    <group position={[0, offsetY, 0]}>
-      <line>
+    <group position={[0, offsetY, 0]} onUpdate={(self) => self.layers.set(1)}>
+      <line layers-toggle={1}>
         <bufferGeometry attach="geometry" onUpdate={(self) => self.setFromPoints(points.current)} />
         <lineBasicMaterial attach="material" color="#4fc3f7" transparent opacity={0.6} linewidth={2} depthTest={false} />
       </line>
-      <gridHelper args={[camSize, 4, '#4fc3f7', '#444']} rotation={[Math.PI/2, 0, 0]} />
+      <gridHelper args={[camSize, 4, '#4fc3f7', '#444']} rotation={[Math.PI/2, 0, 0]} onUpdate={(s) => s.layers.set(1)} />
     </group>
   );
 }
@@ -237,18 +237,19 @@ const SpriteGenerator = ({
       const captureCamera = new THREE.OrthographicCamera(-camSize/2, camSize/2, camSize/2, -camSize/2, 0.1, 1000);
       captureCamera.position.set(0, captureOffsetY, 5);
       captureCamera.lookAt(0, captureOffsetY, 0);
+      captureCamera.layers.set(0); // 【重要】レイヤー0（キャラ等）のみを映し、レイヤー1（UIガイド）を無視する
 
       tempComposer.addPass(new RenderPass(scene, captureCamera));
       
-      // 解像度の比率を計算してアウトラインの太さを補正 (v1.5.5)
-      // メイン画面の高さ (gl.domElement.height) と出力解像度の比
+      // 解像度の比率を計算してアウトラインの太さを補正 (v1.5.6)
       const screenHeight = gl.domElement.height;
       const outlineRatio = outputResolution / screenHeight;
 
       let outlineEffect: ToonOutlineEffectImpl | null = null;
       if (globalOutlineWidth > 0) {
         outlineEffect = new ToonOutlineEffectImpl();
-        (outlineEffect as any).width = outlineRatio; // 画面での見た目と同じ太さになるよう補正
+        // 低解像度（256px等）で線が消えないよう、最低 1.0 ピクセル幅を維持する
+        (outlineEffect as any).width = Math.max(1.0, outlineRatio); 
         (outlineEffect as any).strength = globalOutlineWidth;
         (outlineEffect as any).isOrthographic = 1.0; // キャプチャカメラは常に Ortho
         (outlineEffect as any).cameraNear = captureCamera.near;
@@ -659,7 +660,7 @@ function App() {
       </div>
 
       <div style={{ position: 'absolute', top: 160, right: 20, background: 'rgba(0,0,0,0.8)', padding: '15px 20px', borderRadius: 8, width: 350, zIndex: 10, border: '1px solid #555' }}>
-        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.5)</span></h3>
+        <h3 style={{marginTop: 0, fontSize: 16, borderBottom: '1px solid #444', paddingBottom: 8}}>Setting for: {adjustTarget} <span style={{fontSize: 10, color: '#777', fontWeight: 'normal'}}>(v1.5.6)</span></h3>
         <p style={{margin: '0 0 10px 0', fontSize: 12, color:'gray'}}>File: {targetFileNames[adjustTarget] || 'None'}</p>
 
         <div style={{display:'flex', gap: 10, marginBottom: 15}}>
@@ -771,7 +772,7 @@ function App() {
             togglePause={() => setIsPaused(p => !p)} 
           />
 
-          {!isGenerating && <gridHelper args={[10, 10]} />}
+          {!isGenerating && <gridHelper args={[10, 10]} onUpdate={(s) => s.layers.set(1)} />}
           
           <SpriteGenerator 
              baseModel={baseModel} 
